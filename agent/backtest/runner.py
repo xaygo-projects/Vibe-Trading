@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 _VALID_INTERVALS = {"1m", "5m", "15m", "30m", "1H", "4H", "1D"}
 _VALID_ENGINES = {"daily", "options"}
-_VALID_SOURCES = {"tushare", "okx", "yfinance", "akshare", "ccxt", "auto"}
+_VALID_SOURCES = {"wkserver", "tushare", "okx", "yfinance", "akshare", "ccxt", "auto"}
 
 
 class BacktestConfigSchema(BaseModel):

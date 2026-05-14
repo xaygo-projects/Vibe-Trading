@@ -47,6 +47,7 @@ def _ensure_registered() -> None:
     _registered = True
 
     _loader_modules = [
+        "backtest.loaders.wkserver",     # primary — unified data source
         "backtest.loaders.tushare",
         "backtest.loaders.okx",
         "backtest.loaders.yfinance_loader",
@@ -67,17 +68,20 @@ def _ensure_registered() -> None:
 # ---------------------------------------------------------------------------
 
 FALLBACK_CHAINS: dict[str, list[str]] = {
-    "a_share":   ["tushare", "akshare"],
-    "us_equity": ["yfinance", "akshare"],
-    "hk_equity": ["yfinance", "futu", "akshare"],
-    "crypto":    ["okx", "ccxt"],
-    "futures":   ["tushare", "akshare"],
-    "fund":      ["tushare", "akshare"],
-    "macro":     ["akshare", "tushare"],
-    "forex":     ["akshare", "yfinance"],
-    # Chinese convertible bonds — only akshare's bond_zh_hs_cov_* covers
-    # this universe out of the box. Used by belk_classic strategy template.
-    "cb":        ["akshare"],
+    # In the quant-wk deployment, "wkserver" is the canonical data source
+    # for every market: it reads ohlcv_bars from PG and triggers wkcrawler
+    # to backfill on miss. The external loaders (tushare/okx/yfinance/...)
+    # remain registered so users can pick them explicitly with
+    # `source="okx"` etc., but `source="auto"` will land on wkserver.
+    "a_share":   ["wkserver", "tushare", "akshare"],
+    "us_equity": ["wkserver", "yfinance", "akshare"],
+    "hk_equity": ["wkserver", "yfinance", "futu", "akshare"],
+    "crypto":    ["wkserver", "okx", "ccxt"],
+    "futures":   ["wkserver", "tushare", "akshare"],
+    "fund":      ["wkserver", "tushare", "akshare"],
+    "macro":     ["wkserver", "akshare", "tushare"],
+    "forex":     ["wkserver", "akshare", "yfinance"],
+    "cb":        ["wkserver", "akshare"],
 }
 
 
