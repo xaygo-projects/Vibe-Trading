@@ -242,6 +242,10 @@ def _validate_signal_engine_source(file_path: Path) -> None:
 # --- Market detection (returns market type, NOT source name) ---
 
 _MARKET_PATTERNS = [
+    # Chinese convertible bonds (CB) MUST come before a_share — their codes
+    # share the 6-digit + .SH/.SZ shape but route to a different loader and
+    # engine. SH CB prefixes: 110, 113; SZ CB prefixes: 123, 127, 128.
+    (re.compile(r"^(11[03]\d{3}\.SH|12[378]\d{3}\.SZ)$", re.I), "cb"),
     (re.compile(r"^\d{6}\.(SZ|SH|BJ)$", re.I), "a_share"),
     (re.compile(r"^(51|15|56)\d{4}\.(SZ|SH)$", re.I), "a_share"),
     (re.compile(r"^[A-Z]+\.US$", re.I), "us_equity"),
@@ -271,6 +275,7 @@ _MARKET_TO_SOURCE = {
     "fund": "tushare",
     "macro": "akshare",
     "forex": "akshare",
+    "cb": "akshare",   # CB has no Tushare path; akshare's bond_zh_hs_cov_daily handles it
 }
 
 
@@ -533,6 +538,13 @@ def _create_market_engine(source: str, config: dict, codes: List[str]):
     if "forex" in markets:
         from backtest.engines.forex import ForexEngine
         return ForexEngine(config)
+
+    # Convertible bond routing — T+0, no price limits, 10-lot minimum,
+    # commission ~万2 bilateral, no stamp tax / transfer fee. Fork of
+    # ChinaAEngine with CB-specific market rules.
+    if "cb" in markets:
+        from backtest.engines.china_cb import ChinaCBEngine
+        return ChinaCBEngine(config)
 
     # Original routing (Wave 1)
     if source in ("okx", "ccxt"):

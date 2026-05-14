@@ -3,6 +3,7 @@
 Wave 1 (v1):
   - BaseEngine: ABC for bar-by-bar execution with market rules
   - ChinaAEngine: A-share (T+1, no short, price limits)
+  - ChinaCBEngine: convertible bond (T+0, no short, no price limits, 10-lot)
   - GlobalEquityEngine: US / HK equities
   - CryptoEngine: Crypto perpetuals (funding fees, liquidation)
   - options_portfolio: European/American options (Black-Scholes, v2 with IV smile)
@@ -20,6 +21,7 @@ Wave 3:
 Inheritance:
   BaseEngine
   ├── ChinaAEngine
+  ├── ChinaCBEngine
   ├── GlobalEquityEngine
   ├── CryptoEngine
   ├── ForexEngine

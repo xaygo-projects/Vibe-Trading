@@ -75,6 +75,9 @@ FALLBACK_CHAINS: dict[str, list[str]] = {
     "fund":      ["tushare", "akshare"],
     "macro":     ["akshare", "tushare"],
     "forex":     ["akshare", "yfinance"],
+    # Chinese convertible bonds — only akshare's bond_zh_hs_cov_* covers
+    # this universe out of the box. Used by belk_classic strategy template.
+    "cb":        ["akshare"],
 }
 
 

@@ -27,6 +27,31 @@ def _is_a_share(code: str) -> bool:
     return code.upper().endswith((".SZ", ".SH", ".BJ"))
 
 
+# Chinese convertible bond (CB) code prefixes:
+#   SH: 110xxx (公司可转债), 113xxx (新券可转债)
+#   SZ: 123xxx (创业板可转债), 127xxx (中小板可转债), 128xxx (深市可转债)
+# Belk's legacy strict_v2_signals table holds 125k signals against these
+# codes — keeping the prefix detection narrow so we don't catch regular
+# stocks that happen to start with 1.
+_CB_PREFIXES_SH = frozenset({"110", "113"})
+_CB_PREFIXES_SZ = frozenset({"123", "127", "128"})
+
+
+def _is_cb(code: str) -> bool:
+    """Detect Chinese convertible bonds (沪深可转债)."""
+    upper = code.upper()
+    if not upper.endswith((".SH", ".SZ")):
+        return False
+    digits, _, suffix = upper.partition(".")
+    if len(digits) != 6 or not digits.isdigit():
+        return False
+    if suffix == "SH":
+        return digits[:3] in _CB_PREFIXES_SH
+    if suffix == "SZ":
+        return digits[:3] in _CB_PREFIXES_SZ
+    return False
+
+
 def _is_hk(code: str) -> bool:
     return code.upper().endswith(".HK")
 
@@ -76,7 +101,7 @@ class DataLoader:
     """AKShare universal OHLCV loader (free, no auth)."""
 
     name = "akshare"
-    markets = {"a_share", "us_equity", "hk_equity", "futures", "fund", "macro", "forex"}
+    markets = {"a_share", "us_equity", "hk_equity", "futures", "fund", "macro", "forex", "cb"}
     requires_auth = False
 
     def is_available(self) -> bool:
@@ -129,7 +154,12 @@ class DataLoader:
         """Fetch a single symbol."""
         import akshare as ak
 
-        # ETF check must precede A-share — 518880.SH ends with .SH but is an ETF.
+        # CB check must precede A-share — 113061.SH looks like an A-share
+        # by suffix but needs the bond_zh_hs_cov_* endpoints. ETF check
+        # similarly runs first because 51xxxx.SH / 15xxxx.SZ are ETFs
+        # not stocks.
+        if _is_cb(code):
+            return self._fetch_cb(ak, code, start_date, end_date, interval)
         if _is_etf_listed(code):
             return self._fetch_etf(ak, code, start_date, end_date)
         if _is_a_share(code):
@@ -142,6 +172,48 @@ class DataLoader:
             return self._fetch_forex(ak, code, start_date, end_date)
         # Default: try A-share
         return self._fetch_a_share(ak, code, start_date, end_date, interval)
+
+    def _fetch_cb(
+        self, ak, code: str, start_date: str, end_date: str, interval: str,
+    ) -> Optional[pd.DataFrame]:
+        """Fetch Chinese convertible bond OHLCV via akshare.
+
+        akshare's CB API splits by interval:
+          - daily:   bond_zh_hs_cov_daily(symbol='sh113061')
+                     → date / open / high / low / close / volume
+          - intraday: bond_zh_hs_cov_min(symbol='sh113061', period='15')
+                     → currently unreliable on this network (RemoteDisconnected);
+                     v1 supports D1 only, minute support deferred.
+
+        Code conversion: '113061.SH' → 'sh113061' (akshare prefix style).
+        """
+        digits, _, suffix = code.upper().partition(".")
+        symbol = f"{suffix.lower()}{digits}"
+
+        if interval in ("1D", "daily"):
+            df = ak.bond_zh_hs_cov_daily(symbol=symbol)
+            if df is None or df.empty:
+                return None
+            # bond_zh_hs_cov_daily columns: date / open / high / low / close / volume
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.set_index("date").sort_index()
+            for col in ("open", "high", "low", "close", "volume"):
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+            df = df[["open", "high", "low", "close", "volume"]].dropna(
+                subset=["open", "high", "low", "close"]
+            )
+            return df.loc[start_date:end_date]
+
+        # Minute support — currently flaky from akshare network path.
+        # Belk's original system pulled minute data straight from
+        # EastMoney (CBPriceUrl) via Go HTTP; if M5/M15/H1 demand
+        # arises, write a direct EastMoney fetcher rather than retrying
+        # akshare's bond_zh_hs_cov_min.
+        logger.warning(
+            "akshare CB intraday (%s) not supported in v1 — D1 only. "
+            "Code %s skipped.", interval, code,
+        )
+        return None
 
     def _fetch_a_share(
         self, ak, code: str, start_date: str, end_date: str, interval: str,
