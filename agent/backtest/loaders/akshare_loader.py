@@ -218,21 +218,58 @@ class DataLoader:
     def _fetch_a_share(
         self, ak, code: str, start_date: str, end_date: str, interval: str,
     ) -> Optional[pd.DataFrame]:
-        """Fetch A-share via stock_zh_a_hist."""
+        """Fetch A-share with East-Money + Sina dual-path.
+
+        Tries `stock_zh_a_hist` (push2his.eastmoney.com) first — richer
+        columns and intraday support. Some VPS/datacenter networks
+        can't reach that host and trip RemoteDisconnected. In that
+        case fall back to `stock_zh_a_daily` (Sina, hq.sinajs.cn),
+        which uses a different CDN and tends to be reachable when EM
+        isn't. Sina's response uses lowercase English column names so
+        the date_col argument to _normalize switches accordingly.
+        """
         symbol = code.split(".")[0]
         period = _INTERVAL_MAP_DAILY.get(interval, "daily")
         sd = start_date.replace("-", "")
         ed = end_date.replace("-", "")
-        df = ak.stock_zh_a_hist(
-            symbol=symbol,
-            period=period,
-            start_date=sd,
-            end_date=ed,
-            adjust="qfq",
-        )
+
+        try:
+            df = ak.stock_zh_a_hist(
+                symbol=symbol,
+                period=period,
+                start_date=sd,
+                end_date=ed,
+                adjust="qfq",
+            )
+            if df is not None and not df.empty:
+                return self._normalize(df, date_col="日期")
+        except Exception as exc:
+            logger.warning(
+                "akshare stock_zh_a_hist failed for %s: %s; trying Sina fallback",
+                code, exc,
+            )
+
+        # Sina expects an explicit market prefix; daily-only.
+        suffix = code.rsplit(".", 1)[-1].upper() if "." in code else ""
+        market_prefix = {"SH": "sh", "SZ": "sz"}.get(suffix)
+        if market_prefix is None:
+            return None
+        try:
+            df = ak.stock_zh_a_daily(
+                symbol=f"{market_prefix}{symbol}",
+                start_date=sd,
+                end_date=ed,
+                adjust="qfq",
+            )
+        except Exception as exc:
+            logger.warning(
+                "akshare stock_zh_a_daily fallback also failed for %s: %s",
+                code, exc,
+            )
+            return None
         if df is None or df.empty:
             return None
-        return self._normalize(df, date_col="日期")
+        return self._normalize(df, date_col="date")
 
     def _fetch_us(self, ak, code: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
         """Fetch US stock via stock_us_hist."""
